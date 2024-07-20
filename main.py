@@ -1,63 +1,83 @@
+import os
 from datetime import (date, timedelta, datetime)
-import yfinance
 import pandas as pd
-from ftplib import FTP
+import pickle
 from constants import *
-from utils import display_csv_file, is_market_open, get_market_open_days
+from utils import (
+    get_nasdaq_tickers,
+    download_nasdaq_list_files,
+    get_nasdaq_stock,
+)
+from quotes_calculations import (
+    convert_to_percentage_growths,
+    filter_quotes,
+)
 
-#https://www.nasdaqtrader.com/trader.aspx?id=symboldirdefs
+########################## Application behavior knobs ##########################
+# analysis span [ENDING_DAY - DURATION,ENDING_DAY)
+ANALYSIS_ENDING_DAY = date.today() + timedelta(1)
+ANALYSIS_DURATION = DEFAULT_DAYS_TO_GET_QUOTES
 
-def download_list_file_from_nasdaq():
-    # Download the NASDAQ company file to ./lists/nasdaq_listed.txt
-    # and the NYSE to ./lists/nasdaq_other_listed.txt
-    list_files =[{'remote': NASDAQ_LIST_FILE_PATH, 'local': NASDAQ_LOCAL_LIST_FILE},
-                 {'remote':NYSE_LIST_FILE_PATH, 'local': NYSE_LOCAL_LIST_FILE} ]
-    ftp = FTP(NASDAQ_FTP_SERVER)
-    ftp.login()  # Login as anonymous
-    
-    for file in list_files:
-        with open(file['local'], 'wb') as f:
-            ftp.retrbinary(f'RETR {file['remote']}', lambda data: f.write(data))
-    ftp.quit()
+# Should download NADAQ company list (bypassing local caches)
+DOWNLOAD_NEW_LIST = False
+# should download quotes from yfinance?
+DOWNLOAD_NEW_QUOTES = True
 
-def get_stock(ticker, day):
-    ticker_data = yfinance.Ticker(ticker)
-    history = ticker_data.history(start=day, end=day+timedelta(1))
-    info = ticker_data.info
-    print("======start of info===========")
-    # for key, value in info.items():
-    #     print(key, value)
-    format = '%Y-%m-%d %H:%M:%S'
-    print("SharesShort\t sharesShortPriorMonth \tsharesShortPreviousMonthDate\tsharesShortInterest")
-    print(str(info['sharesShort']) + "\t" + str(info['sharesShortPriorMonth']) + "\t" +
-          date.fromtimestamp(info['sharesShortPreviousMonthDate']).strftime(format) + '\t' +
-          date.fromtimestamp(info['dateShortInterest']).strftime(format))
+# final result size and disk writing control
+RESULT_LIST_SIZE = DEFAULT_RESULT_PERFORMER_LIST_LEN+10
+# write the result lists (top/bottom performers) to file: keep it True
+WRITE_RESULT_LIST_TO_DISK = True
 
-    print("========end of info===========")
-    return history
-
+################################ Main Routine #################################
 def main():
-    # ticker = "alar"
-    # quotes = pd.DataFrame([], columns=['Open'])
-    # for idx in range (0, 5):
-    #     day = date.today() - timedelta(idx)
-    #     quote_of_day = get_stock(ticker, day)
-    #     if not quote_of_day.empty:
-    #         quotes = pd.concat([quotes, quote_of_day], axis=0)
+    start_time = datetime.now()
+
+    ## download the nasdaq company list file.
+    nasdaq_list_stub_name = os.getcwd() + '/' + STUB_DIR + NASDAQ_LIST_STUB_NAME
+    if not DOWNLOAD_NEW_LIST and os.path.exists(nasdaq_list_stub_name):
+        # retrieve from cache.
+        with open(nasdaq_list_stub_name, 'rb') as f:
+            tickers = pickle.load(f)
+    else:
+        local_list_dir = os.getcwd() + '/' + NASDAW_LOCAL_LIST_DIR
+        (nasdaq_list_file, _) = download_nasdaq_list_files(local_list_dir)
+        tickers = get_nasdaq_tickers(nasdaq_list_file)
+        tickers = tickers[~pd.isna(tickers)]
+        with open(nasdaq_list_stub_name, 'wb+') as f:
+            pickle.dump(tickers, f)
+    stocks = {}
+    increases = {}
+    nasdaq_quotes_stub_name = os.getcwd() + '/' + STUB_DIR + NASDAQ_QUOTES_STUB_NAME
+    nasdaq_changes_stub_name = os.getcwd() + '/' + STUB_DIR + NASDAQ_CHANGES_STUB_NAME
+    if  not DOWNLOAD_NEW_QUOTES and \
+        os.path.exists(nasdaq_quotes_stub_name) and \
+        os.path.exists(nasdaq_changes_stub_name):
+        # use local cache
+        with open(nasdaq_quotes_stub_name, 'rb') as f:
+            stocks = pickle.load(f)
+        with open(nasdaq_changes_stub_name, 'rb') as f:
+            increases = pickle.load(f)
+    else:
+        for ticker in tickers:
+            quote = get_nasdaq_stock(ticker, ANALYSIS_ENDING_DAY, ANALYSIS_DURATION)
+            if bool(quote):
+                stocks[ticker] = quote
+                increases[ticker] = convert_to_percentage_growths(quote)
+        
+        with open(nasdaq_quotes_stub_name, 'wb') as f:
+            pickle.dump(stocks, f)
+        with open(nasdaq_changes_stub_name, 'wb') as f:
+            pickle.dump(increases, f)
+
+    # filter the quotes into 4 lists: (ups, steadies, downs, slippers)
+    filter_quotes(increases,
+                  result_size=RESULT_LIST_SIZE,
+                  write_file=WRITE_RESULT_LIST_TO_DISK)
     
-    # print(quotes)
-    # nasdaq_tickers = get_nasdaq_company_list()
-    #download_list_file_from_nasdaq()
-    #display_csv_file(NASDAQ_LOCAL_LIST_FILE)
-    #display_csv_file(NYSE_LOCAL_LIST_FILE)
-
-    # today = datetime.now().strftime('%Y-%m-%d')
-    # open_days = get_market_open_days(today, 30)
-    # for day in open_days:
-    #     print(day)
-
-
-    print("completed")
+    end_time = datetime.now()
+    print(f"program started @ {start_time}, \
+            completed @ {end_time}, \
+            execution time: {end_time - start_time}")
 
 if __name__ == '__main__':
     main()

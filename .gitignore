@@ -142,9 +142,9 @@ html/
 *.mp4
 *.mov
 input_videos/
-output_videos/
+output/
 runs/
-tracker_stubs/
+file_stubs/
 
 ######################### Validation Scripts & Testing #########################
 output*/
