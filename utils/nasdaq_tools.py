@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from constants import *
 from ftplib import FTP
 import yfinance
+import pickle
 
 # Usage: is_open = is_market_open('2024-07-08')
 def is_market_open(date):
@@ -38,7 +39,7 @@ def load_csv_file(csv_file_path, csv_delimiter='|'):
 
 # load cvs file, trim its first column which is ticker to a list.
 # return a python array of tickers.
-def get_nasdaq_tickers(nasdaq_csv_file_path):
+def get_tickers_from_raw_csv(nasdaq_csv_file_path):
     csv_file_df = load_csv_file(nasdaq_csv_file_path, csv_delimiter='|')
     
     # drop the final row: it is the file generated time, which we do not care.
@@ -48,33 +49,63 @@ def get_nasdaq_tickers(nasdaq_csv_file_path):
 
 # download listed companies from NASDAQ. 
 # src: https://www.nasdaqtrader.com/trader.aspx?id=symboldirdefs
-# dst: dst_list_directory
-#      NASDAQ_LOCAL_LIST_FILE
-#      NYSE_LOCAL_LIST_FILE
-# return:
-#     full path for the 2 raw list files.
-def download_nasdaq_list_files(dst_list_directory, force_download=False):
-    # Download the NASDAQ company file to ./lists/nasdaq_listed.txt
-    # and the NYSE to ./lists/nasdaq_other_listed.txt
-    dst_nasdaq_file = os.path.normpath(dst_list_directory + '/' + NASDAQ_LOCAL_LIST_FILE)
-    dst_nyse_file = os.path.normpath(dst_list_directory + '/' + NYSE_LOCAL_LIST_FILE)
-    if (not force_download and
-        os.path.exists(dst_nasdaq_file) and
-        os.path.exists(dst_nyse_file)):
-        #no need to download, use the cache.
-        return (dst_nasdaq_file, dst_nyse_file)
+# dst:
+#   work_dir/file_stubs/nasdaq_listed.csv  or
+#   work_dir/file_stubs/nyse_listed.csv
+# stock_type:  'nasdaq' or 'nyse'
+# return: full path for the raw csv file from nasdaq.
+remote_nasdaq_csv_files = {
+                            'nasdaq':NASDAQ_LIST_FILE_PATH,
+                            'nyse':NYSE_LIST_FILE_PATH
+                           }
+def download_nasdaq_list_files(dst_dir, stock_type, force_download=False):
+    # Download the NASDAQ company file to ./file_stubs/nasdaq_listed.csv
+    # and the NYSE to ./file_stubs/nyse_listed.csv
+    dst_full_path = os.path.normpath(dst_dir + '/' + stock_type + '_listed.csv')
+    if not force_download and os.path.exists(dst_full_path):
+        return dst_full_path
     
-    # download the files
-    list_files =[{'remote': NASDAQ_LIST_FILE_PATH, 'local': dst_nasdaq_file},
-                 {'remote':NYSE_LIST_FILE_PATH, 'local': dst_nyse_file} ]
+    remote_path = remote_nasdaq_csv_files[stock_type.lower()]
     ftp = FTP(NASDAQ_FTP_SERVER)
     ftp.login()  # Login as anonymous
-    
-    for file in list_files:
-        with open(file['local'], 'wb') as f:
-            ftp.retrbinary(f'RETR {file['remote']}', lambda data: f.write(data))
+    with open(dst_full_path, 'wb') as f:
+            ftp.retrbinary(f'RETR {remote_path}', lambda data: f.write(data))
     ftp.quit()
-    return (dst_nasdaq_file, dst_nyse_file)
+
+    return dst_full_path
+
+# Retrieve nasdaq or nyse exchange company lists
+# exchange_type: string, 'nasdaq', or 'nyse'
+# force_download: bool, True or False.
+# return:
+#   company tickers on the requested stock exchange market
+# affected caches:
+#   file_stubs/nasdaq_list.pkl
+#   file_stubs/nyse_list.pkl
+#   (indirectly: file_stubs/nyse_list_raw.csv)
+tickers_stub_file_dict = {
+    'nasdaq': NASDAQ_LIST_STUB_NAME,
+    'nyse': NYSE_LIST_STUB_NAME,
+}
+def get_exchange_tickers(exchg_type, cwd, force_download=False):
+    stub_file = cwd + '/' + STUB_DIR + '/'+ tickers_stub_file_dict[exchg_type.lower()]
+    stub_file = os.path.normpath(stub_file)
+    if not force_download and  os.path.exists(stub_file):
+        # retrieve from cache and return.
+        with open(stub_file, 'rb') as f:
+            return pickle.load(f)
+    
+    # download and work out the company tickers
+    local_list_dir = cwd + '/' + STUB_DIR
+    csv_file = download_nasdaq_list_files(local_list_dir, 
+                                          exchg_type,
+                                          force_download)
+    tickers = get_tickers_from_raw_csv(csv_file)
+    tickers = tickers[~pd.isna(tickers)]
+    with open(stub_file, 'wb+') as f:
+        pickle.dump(tickers, f)
+    
+    return tickers
 
 def is_company_relavent(yf_ticker):
     info = yf_ticker.info
@@ -97,7 +128,7 @@ def is_company_relavent(yf_ticker):
 # return:
 #   list of tuples (each tuple has 2 items):
 #     [('yyyy-mm-dd', quote), ..., ('yyyy-mm-dd', quote)]
-def get_nasdaq_stock(ticker, end_day, duration=DEFAULT_DAYS_TO_GET_QUOTES):
+def get_nasdaq_stock(ticker, duration, end_day):
     stock_quotes = []
 
     ticker_data = yfinance.Ticker(ticker)    
