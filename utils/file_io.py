@@ -1,9 +1,8 @@
 import os
-from constants import *
 
 # Write the final list files into
 #   os.getcwd()/outputs/{input_file_name}
-def write_list(file_full_path, list_data):
+def write_list_file(file_full_path, list_data):
     # write a list of (ticker, date, percent)
     str_to_write = ""
     for item in list_data:
