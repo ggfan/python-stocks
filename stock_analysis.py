@@ -1,6 +1,6 @@
-# Consolidate analysis to a class
+# StockAnalysis class implementation
+
 import os
-import sys
 from ftplib import FTP
 import pickle
 import pandas as pd
@@ -110,21 +110,12 @@ class StockAnalysis:
                 quotes.append((dates[idx], this_quotes.iloc[idx]))
         return quotes
 
-    # download_quotes:
-    #   download the stocks for the given stock exchange market tickers
-    # exchange_type:
-    #   'nasdaq' or 'nyse'
-    # tickers: a list/array of stock company tickers
-    # period:  a tuple of (duration, end_day) to get stocks. end_day is excluded.
-    # work_dir: the working directory, the subdirectory 'file_stubs' is used for cache.
-    # force_download:
-    #       True: re-download quotes from yahoo-finance and update the cache.
-    #       False: simply load from cache (not downloading from yahoo, even the request and
-    #              cached duration does not match.)
-    # return:
-    #    a dictionary of stocks for all valid companies in the given tikers:
-    #    {'ticker1': [(date, quote)...(date, quote)], ...
-    #     'tickerN': [(date, quote)...(date, quote)], }
+    # A helper function to make sure the cached quotes are same as the
+    # requested duration of days.
+    # stocks: cached stock quote dictionary in the form if:
+    #         {ticker:[(start_date, quote), (), (end_date, quote)]}
+    # returns:  (duration-in-days(int), end_day(date))
+    #           end_day is excluded
     def __get_period_from_quotes(self, stocks):
         idx = 0
         SET_SIZE = 10
@@ -151,6 +142,17 @@ class StockAnalysis:
         end = date.today() + end_delta + timedelta(1)   # end day is not included
         return (duration, end)
 
+    # download_quotes:
+    #   download the stocks for the given stock exchange market tickers
+    # period:  a tuple of (duration, end_day) to get stocks. end_day is excluded.
+    # force_download:
+    #       True: re-download quotes from yahoo-finance and update the cache.
+    #       False: simply load from cache (not downloading from yahoo, even the request and
+    #              cached duration does not match.)
+    # return:
+    #    a dictionary of stocks for all valid companies in the given tikers:
+    #    {'ticker1': [(date, quote)...(date, quote)], ...
+    #     'tickerN': [(date, quote)...(date, quote)], }
     def download_stocks(self, period, force_download=False):
         stocks = {}
         if not force_download and os.path.exists(self.stock_quotes_stub):
@@ -174,7 +176,11 @@ class StockAnalysis:
             pickle.dump(stocks, f)
 
         return stocks
-    
+
+    # Derive the percentage increase from the give list of quotes.
+    # quotes: [(date, quote), ..., (date,quote)]
+    # returns: [(date, percentage increase comparing to the previous day),...]
+    #          Note that the list will be one item shorter than the input list.    
     def convert_to_percentage_growth(self, stocks):
         growths_dict = {}
         for ticker, quotes in stocks.items():
@@ -253,6 +259,3 @@ class StockAnalysis:
         growths = self.get_percentage_growth(period)
         performers = self.filter_stocks(growths, result_size)
         return performers
-
-
-

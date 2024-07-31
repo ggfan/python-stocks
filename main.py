@@ -26,10 +26,10 @@ WRITE_RESULT_LIST_TO_DISK = True
 ################################ Main Routine #################################
 def main():
     start_time = datetime.now()    
-    nasdaq = StockAnalysis('nasdaq')
-    performers = nasdaq.anaylze((ANALYSIS_DURATION, ANALYSIS_ENDING_DAY),
-                                result_size = RESULT_LIST_SIZE
-                               )
+#    nasdaq = StockAnalysis('nasdaq')
+#    performers = nasdaq.anaylze((ANALYSIS_DURATION, ANALYSIS_ENDING_DAY),
+#                                result_size = RESULT_LIST_SIZE
+#                               )
     
     nyse = StockAnalysis('nyse')
     nyse_performers = nyse.anaylze((ANALYSIS_DURATION, ANALYSIS_ENDING_DAY),
